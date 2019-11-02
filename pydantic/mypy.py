@@ -49,11 +49,13 @@ from mypy.types import (
 )
 from mypy.typevars import fill_typevars
 from mypy.util import get_unique_redefinition_name
+from mypy.plugins.dataclasses import dataclass_class_maker_callback
 
 CONFIGFILE_KEY = 'pydantic-mypy'
 METADATA_KEY = 'pydantic-mypy-metadata'
 BASEMODEL_FULLNAME = 'pydantic.main.BaseModel'
 BASESETTINGS_FULLNAME = 'pydantic.env_settings.BaseSettings'
+PYDANTIC_DATACLASS_FULLNAME = "pydantic.dataclasses.dataclass"
 FIELD_FULLNAME = 'pydantic.fields.Field'
 
 
@@ -83,6 +85,12 @@ class PydanticPlugin(Plugin):
     def get_method_hook(self, fullname: str) -> Optional[Callable[[MethodContext], Type]]:
         if fullname.endswith('.from_orm'):
             return from_orm_callback
+        return None
+
+    def get_class_decorator_hook(self, fullname: str
+                                 ) -> Optional[Callable[[ClassDefContext], None]]:
+        if fullname == PYDANTIC_DATACLASS_FULLNAME:
+            return dataclass_class_maker_callback
         return None
 
     def _pydantic_model_class_maker_callback(self, ctx: ClassDefContext) -> None:
@@ -236,7 +244,9 @@ class PydanticModelTransformer:
                 # Basically, it is an edge case when dealing with complex import logic
                 # This is the same logic used in the dataclasses plugin
                 continue
-            assert isinstance(node, Var)
+            if not isinstance(node, Var):
+                detail = f""
+                error_unexpected_behavior(detail, ctx.api, ctx.context)
 
             # x: ClassVar[int] is ignored by dataclasses.
             if node.is_classvar:
@@ -344,7 +354,8 @@ class PydanticModelTransformer:
             sym_node = info.names.get(field.name)
             if sym_node is not None:
                 var = sym_node.node
-                assert isinstance(var, Var)
+                if not isinstance(var, Var):
+
                 var.is_property = frozen
             else:
                 var = field.to_var(info, use_alias=False)
